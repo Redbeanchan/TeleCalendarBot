@@ -55,7 +55,7 @@ class CalendarReminderWorker:
                     remaining = event.start - now
                     if not event.all_day and timedelta(0) <= remaining <= timedelta(minutes=self.minutes) and self.database.mark_calendar_notice(event.event_id, event.start, self.minutes):
                         location = f"\n{event.location}" if event.location else ""
-                        await self.bot.send_message(self.chat_id, f"📅 {event.title} in {max(1, round(remaining.total_seconds()/60))} minutes\n\n{event.start.strftime('%-I:%M %p')}{location}")
+                        await self.bot.send_message(self.chat_id, f"📅 {event.title} in {max(1, round(remaining.total_seconds()/60))} minutes\n\n{event.start.strftime('%#I:%M %p')}{location}")
             except CalendarError as exc:
                 logger.warning("Calendar reminder poll failed: %s", exc)
             except Exception:

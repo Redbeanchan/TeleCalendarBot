@@ -36,7 +36,7 @@ def message_handler(allowed_user_id: int):
                     await message.reply_text("What should I remind you about?")
                     return
                 services["database"].create_reminder(update.effective_user.id, update.effective_chat.id, intent.title, resolved.start, services["settings"].timezone)
-                await message.reply_text(f"🔔 Reminder set\n\n{intent.title}\n{resolved.start.strftime('%a, %-d %b · %-I:%M %p')}")
+                await message.reply_text(f"🔔 Reminder set\n\n{intent.title}\n{resolved.start.strftime('%a, %#d %b · %#I:%M %p')}")
             elif intent.intent == IntentType.PROPOSE_CALENDAR_EVENT:
                 if not intent.title:
                     await message.reply_text("What should I call this event?")
@@ -73,15 +73,15 @@ def _clarification(intent) -> str:
 
 def _proposal(title, start, end, location) -> str:
     where = f"\n📍 {location}" if location else ""
-    return f"📅 Create Google Calendar event?\n\n{title}\n{start.strftime('%A, %-d %B %Y')}\n{start.strftime('%-I:%M %p')} – {end.strftime('%-I:%M %p')}{where}"
+    return f"📅 Create Google Calendar event?\n\n{title}\n{start.strftime('%A, %#d %B %Y')}\n{start.strftime('%#I:%M %p')} – {end.strftime('%#I:%M %p')}{where}"
 
 
 def _event_list(day, events, timezone) -> str:
-    heading = day.astimezone(timezone).strftime("%A, %-d %B")
+    heading = day.astimezone(timezone).strftime("%A, %#d %B")
     if not events:
         return f"📅 {heading}\n\nNothing scheduled."
     lines = []
     for event in events:
-        when = "All day" if event.all_day else event.start.astimezone(timezone).strftime("%-I:%M %p")
+        when = "All day" if event.all_day else event.start.astimezone(timezone).strftime("%#I:%M %p")
         lines.append(f"• {when} — {event.title}")
     return f"📅 {heading}\n\n" + "\n".join(lines)

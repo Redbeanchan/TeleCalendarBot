@@ -20,7 +20,7 @@ def main() -> None:
         raise SystemExit(f"OAuth desktop client file not found: {credentials_path}")
     token_path.parent.mkdir(parents=True, exist_ok=True)
     flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
-    credentials = flow.run_local_server(host="0.0.0.0", port=8080, open_browser=False, authorization_prompt_message="Open this URL in your browser:\n{url}")
+    credentials = flow.run_local_server(host="127.0.0.1", port=8080, open_browser=False, authorization_prompt_message="Open this URL in your browser:\n{url}")
     token_path.write_text(credentials.to_json(), encoding="utf-8")
     token_path.chmod(0o600)
     print(f"Authorization saved to {token_path}")

@@ -46,7 +46,7 @@ def callback_handler(allowed_user_id: int):
             event_id = await context.application.bot_data["calendar"].create_event(action)
             db.complete_action(action_id, event_id)
             start, end = datetime.fromisoformat(action["start_datetime"]), datetime.fromisoformat(action["end_datetime"])
-            await query.edit_message_text(f"✅ Added to Google Calendar\n\n{action['event_title']}\n{start.strftime('%a, %-d %b · %-I:%M')}–{end.strftime('%-I:%M %p')}")
+            await query.edit_message_text(f"✅ Added to Google Calendar\n\n{action['event_title']}\n{start.strftime('%a, %#d %b · %#I:%M')}–{end.strftime('%#I:%M %p')}")
         except CalendarError as exc:
             db.release_action(action_id, str(exc))
             await query.edit_message_text(f"{exc}\n\nThe proposal is still pending; try Create again.")
