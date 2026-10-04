@@ -1,0 +1,39 @@
+services:
+  telegram-assistant:
+    build: {context: .}
+    image: telecalendar-assistant:local
+    restart: unless-stopped
+    env_file: [.env]
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+    networks: [assistant-internal]
+    init: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
+
+  google-auth:
+    profiles: [tools]
+    build: {context: .}
+    image: telecalendar-assistant:local
+    env_file: [.env]
+    volumes: ["./secrets:/secrets"]
+    ports: ["127.0.0.1:8080:8080"]
+    command: ["python", "scripts/google_auth.py"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+networks:
+  assistant-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
