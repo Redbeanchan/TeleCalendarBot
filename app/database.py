@@ -4,13 +4,13 @@ import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Iterator
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(dt_timezone.utc)
 
 
 class Database:
@@ -52,7 +52,7 @@ class Database:
         with self.transaction(immediate=True) as db:
             db.execute(
                 "INSERT INTO reminders(id,telegram_user_id,telegram_chat_id,title,scheduled_at_utc,original_timezone,created_at,status) VALUES(?,?,?,?,?,?,?,'pending')",
-                (reminder_id, user_id, chat_id, title, when.astimezone(UTC).isoformat(), timezone, utcnow().isoformat()),
+                (reminder_id, user_id, chat_id, title, when.astimezone(dt_timezone.utc).isoformat(), timezone, utcnow().isoformat()),
             )
         return reminder_id
 
@@ -121,6 +121,52 @@ class Database:
                 "UPDATE pending_actions SET status='cancelled' WHERE id=? AND telegram_user_id=? AND status='pending'", (action_id, user_id)
             ).rowcount)
 
+    def get_calendar_draft(self, user_id: int, chat_id: int) -> sqlite3.Row | None:
+        with self.connect() as db:
+            return db.execute(
+                "SELECT * FROM calendar_drafts WHERE telegram_user_id=? AND telegram_chat_id=?",
+                (user_id, chat_id),
+            ).fetchone()
+
+    def upsert_calendar_draft(self, user_id: int, chat_id: int, title: str | None, date_expression: str | None,
+                              event_time: str | None, end_time: str | None, location: str | None,
+                              timezone: str, ttl_minutes: int) -> None:
+        now = utcnow()
+        with self.transaction(immediate=True) as db:
+            db.execute(
+                """INSERT INTO calendar_drafts(
+                     telegram_user_id,telegram_chat_id,title,date_expression,event_time,end_time,location,timezone,updated_at,expires_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(telegram_user_id,telegram_chat_id) DO UPDATE SET
+                     title=excluded.title, date_expression=excluded.date_expression, event_time=excluded.event_time,
+                     end_time=excluded.end_time, location=excluded.location, timezone=excluded.timezone,
+                     updated_at=excluded.updated_at, expires_at=excluded.expires_at""",
+                (
+                    user_id, chat_id, title, date_expression, event_time, end_time, location, timezone,
+                    now.isoformat(), (now + timedelta(minutes=ttl_minutes)).isoformat(),
+                ),
+            )
+
+    def clear_calendar_draft(self, user_id: int, chat_id: int) -> None:
+        with self.transaction(immediate=True) as db:
+            db.execute(
+                "DELETE FROM calendar_drafts WHERE telegram_user_id=? AND telegram_chat_id=?",
+                (user_id, chat_id),
+            )
+
+    def stage_action_for_update(self, action_id: str, user_id: int, chat_id: int, ttl_minutes: int) -> sqlite3.Row | None:
+        action = self.get_action(action_id)
+        if action is None or action["telegram_user_id"] != user_id or action["status"] != "pending":
+            return None
+        start = datetime.fromisoformat(action["start_datetime"])
+        end = datetime.fromisoformat(action["end_datetime"])
+        self.upsert_calendar_draft(
+            user_id, chat_id, action["event_title"], start.strftime("%d %B %Y"), start.strftime("%H:%M"),
+            end.strftime("%H:%M"), action["location"], action["timezone"], ttl_minutes,
+        )
+        self.cancel_action(action_id, user_id)
+        return action
+
     def mark_update(self, update_id: int) -> bool:
         try:
             with self.transaction(immediate=True) as db:
@@ -155,6 +201,13 @@ CREATE TABLE IF NOT EXISTS pending_actions(
  idempotency_key TEXT NOT NULL UNIQUE, last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_actions_status ON pending_actions(status, expires_at);
+CREATE TABLE IF NOT EXISTS calendar_drafts(
+ telegram_user_id INTEGER NOT NULL, telegram_chat_id INTEGER NOT NULL,
+ title TEXT, date_expression TEXT, event_time TEXT, end_time TEXT, location TEXT,
+ timezone TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+ PRIMARY KEY(telegram_user_id, telegram_chat_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_drafts_expiry ON calendar_drafts(expires_at);
 CREATE TABLE IF NOT EXISTS processed_updates(update_id INTEGER PRIMARY KEY, processed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS calendar_notifications(
  event_id TEXT NOT NULL, event_start TEXT NOT NULL, minutes_before INTEGER NOT NULL,

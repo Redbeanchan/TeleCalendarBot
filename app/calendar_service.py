@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -46,8 +46,8 @@ class CalendarService:
     def _list_events(self, start: datetime, end: datetime) -> list[CalendarEvent]:
         try:
             items = self._service().events().list(
-                calendarId=self.calendar_id, timeMin=start.astimezone(UTC).isoformat(),
-                timeMax=end.astimezone(UTC).isoformat(), singleEvents=True, orderBy="startTime",
+                calendarId=self.calendar_id, timeMin=start.astimezone(timezone.utc).isoformat(),
+                timeMax=end.astimezone(timezone.utc).isoformat(), singleEvents=True, orderBy="startTime",
             ).execute().get("items", [])
             return [self._convert(item) for item in items if item.get("status") != "cancelled"]
         except HttpError as exc:

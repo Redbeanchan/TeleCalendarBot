@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from app.calendar_service import CalendarError
 from app.date_resolver import DateResolutionError, default_duration
 from app.intent_parser import IntentParseError
-from app.models import IntentType
+from app.models import IntentType, ParsedIntent
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,16 @@ def message_handler(allowed_user_id: int):
         try:
             intent = await services["intent_parser"].parse(message.text)
             logger.info("Intent classified type=%s confidence=%.2f", intent.intent, intent.confidence)
+            draft = services["database"].get_calendar_draft(update.effective_user.id, update.effective_chat.id)
+            if draft and (intent.intent in {IntentType.PROPOSE_CALENDAR_EVENT, IntentType.UNKNOWN} or _has_calendar_details(intent)):
+                intent = _merge_calendar_draft(intent, draft, message.text)
+            if intent.intent == IntentType.PROPOSE_CALENDAR_EVENT and _is_incomplete_calendar_intent(intent):
+                services["database"].upsert_calendar_draft(
+                    update.effective_user.id, update.effective_chat.id, intent.title, intent.date_expression, intent.time,
+                    intent.end_time, intent.location, services["settings"].timezone, services["settings"].pending_action_ttl_minutes,
+                )
+                await message.reply_text(_calendar_draft_prompt(intent))
+                return
             if intent.needs_clarification or intent.confidence < 0.55:
                 await message.reply_text(_clarification(intent))
                 return
@@ -46,9 +56,11 @@ def message_handler(allowed_user_id: int):
                     update.effective_user.id, intent.title, resolved.start, end, services["settings"].timezone,
                     intent.location, services["settings"].pending_action_ttl_minutes,
                 )
+                services["database"].clear_calendar_draft(update.effective_user.id, update.effective_chat.id)
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Create", callback_data=f"calendar:create:{action_id}"),
-                    InlineKeyboardButton("❌ Cancel", callback_data=f"calendar:cancel:{action_id}"),
+                    InlineKeyboardButton("Yes", callback_data=f"calendar:create:{action_id}"),
+                    InlineKeyboardButton("No", callback_data=f"calendar:cancel:{action_id}"),
+                    InlineKeyboardButton("Update details", callback_data=f"calendar:update:{action_id}"),
                 ]])
                 await message.reply_text(_proposal(intent.title, resolved.start, end, intent.location), reply_markup=keyboard)
             elif intent.intent == IntentType.QUERY_CALENDAR:
@@ -65,10 +77,53 @@ def message_handler(allowed_user_id: int):
     return handle
 
 
+def _has_calendar_details(intent: ParsedIntent) -> bool:
+    return any([intent.title, intent.date_expression, intent.time, intent.end_time, intent.location])
+
+
+def _is_incomplete_calendar_intent(intent: ParsedIntent) -> bool:
+    return not (intent.title and intent.date_expression and intent.time)
+
+
+def _merge_calendar_draft(intent: ParsedIntent, draft, message_text: str) -> ParsedIntent:
+    data = {
+        "intent": IntentType.PROPOSE_CALENDAR_EVENT,
+        "title": intent.title or draft["title"],
+        "date_expression": intent.date_expression or draft["date_expression"],
+        "time": intent.time or draft["event_time"],
+        "end_time": intent.end_time or draft["end_time"],
+        "location": intent.location if intent.location is not None else draft["location"],
+        "confidence": max(intent.confidence, 0.9),
+        "missing_fields": [],
+        "needs_clarification": False,
+    }
+    if not data["title"] and not any([intent.date_expression, intent.time, intent.end_time, intent.location]):
+        data["title"] = message_text.strip()[:500] or None
+    missing = []
+    if not data["title"]:
+        missing.append("title")
+    if not data["date_expression"]:
+        missing.append("day")
+    if not data["time"]:
+        missing.append("time")
+    data["missing_fields"] = missing
+    data["needs_clarification"] = bool(missing)
+    return ParsedIntent(**data)
+
+
 def _clarification(intent) -> str:
-    missing = " and ".join(intent.missing_fields)
     subject = intent.title or "that"
-    return f"🗓️ {subject} needs more detail.\n\nWhat {missing or 'day and time'} should I use?"
+    return f"🗓️ {subject} needs more detail.\n\nWhat day and time should I use?"
+
+
+def _calendar_draft_prompt(intent: ParsedIntent) -> str:
+    if not intent.title:
+        return "What should I call this event?"
+    if not intent.date_expression:
+        return f"When should I schedule {intent.title}?"
+    if not intent.time:
+        return f"What time should I schedule {intent.title}?"
+    return f"What else should I update for {intent.title}?"
 
 
 def _proposal(title, start, end, location) -> str:

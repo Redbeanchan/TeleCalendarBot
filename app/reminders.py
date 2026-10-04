@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.calendar_service import CalendarError, CalendarService
@@ -21,7 +21,7 @@ class ReminderWorker:
         while not self._stopping.is_set():
             for row in self.database.claim_due_reminders():
                 scheduled = datetime.fromisoformat(row["scheduled_at_utc"])
-                overdue = datetime.now(UTC) - scheduled
+                overdue = datetime.now(timezone.utc) - scheduled
                 suffix = "\n_(Due earlier while I was offline.)_" if overdue > timedelta(minutes=2) else ""
                 try:
                     await self.bot.send_message(row["telegram_chat_id"], f"⏰ Reminder: {row['title']}{suffix}", parse_mode="Markdown")

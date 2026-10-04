@@ -28,6 +28,16 @@ def callback_handler(allowed_user_id: int):
         if namespace != "calendar":
             return
         db = context.application.bot_data["database"]
+        if operation == "update":
+            action = db.stage_action_for_update(
+                action_id, update.effective_user.id, update.effective_chat.id,
+                context.application.bot_data["settings"].pending_action_ttl_minutes,
+            )
+            if action is None:
+                await query.edit_message_text("This proposal is no longer pending.")
+                return
+            await query.edit_message_text("Send the updated details for this event.")
+            return
         if operation == "cancel":
             if db.cancel_action(action_id, update.effective_user.id):
                 await query.edit_message_text("❌ Calendar event cancelled. Nothing was changed.")
