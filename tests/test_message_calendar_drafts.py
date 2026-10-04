@@ -164,7 +164,7 @@ def test_conversation_through_real_handlers_requires_yes(tmp_path):
     # The draft survives a database connection / process restart.
     services["database"] = Database(db.path)
     reply = message("dinner with boss", 2)
-    assert reply.args[0] == 'Shall I create an event for 5 October 2026 called "dinner with boss", at 7:00 PM?'
+    assert reply.args[0] == 'Shall I create an event for 5 October 2026 called "Dinner with Boss", at 7:00 PM?'
     buttons = reply.kwargs["reply_markup"].inline_keyboard[0]
     assert [button.text for button in buttons] == ["Yes", "No", "Edit details"]
     old_yes = buttons[0].callback_data
@@ -172,7 +172,7 @@ def test_conversation_through_real_handlers_requires_yes(tmp_path):
     calendar.create_event.assert_not_awaited()
 
     reply = message("6th Oct", 4)
-    assert reply.args[0] == 'Shall I create an event for 6 October 2026 called "dinner with boss", at 7:00 PM?'
+    assert reply.args[0] == 'Shall I create an event for 6 October 2026 called "Dinner with Boss", at 7:00 PM?'
     buttons = reply.kwargs["reply_markup"].inline_keyboard[0]
     action = db.get_action(buttons[0].callback_data.split(":", 2)[2])
     assert action["end_datetime"] == "2026-10-06T21:00:00+08:00"

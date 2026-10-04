@@ -45,10 +45,19 @@ class CalendarService:
 
     def _list_events(self, start: datetime, end: datetime) -> list[CalendarEvent]:
         try:
-            items = self._service().events().list(
-                calendarId=self.calendar_id, timeMin=start.astimezone(timezone.utc).isoformat(),
-                timeMax=end.astimezone(timezone.utc).isoformat(), singleEvents=True, orderBy="startTime",
-            ).execute().get("items", [])
+            service = self._service()
+            items = []
+            page_token = None
+            while True:
+                page = service.events().list(
+                    calendarId=self.calendar_id, timeMin=start.astimezone(timezone.utc).isoformat(),
+                    timeMax=end.astimezone(timezone.utc).isoformat(), singleEvents=True, orderBy="startTime",
+                    pageToken=page_token,
+                ).execute()
+                items.extend(page.get("items", []))
+                page_token = page.get("nextPageToken")
+                if not page_token:
+                    break
             return [self._convert(item) for item in items if item.get("status") != "cancelled"]
         except HttpError as exc:
             raise CalendarError("Google Calendar is temporarily unavailable.") from exc

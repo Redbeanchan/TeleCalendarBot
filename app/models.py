@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 try:
     from enum import StrEnum
 except ImportError:
@@ -29,6 +30,14 @@ class ParsedIntent(BaseModel):
     confidence: float = Field(default=0, ge=0, le=1)
     missing_fields: list[str] = Field(default_factory=list)
     needs_clarification: bool = False
+    recurrence_rule: str | None = None
+
+    @field_validator("recurrence_rule")
+    @classmethod
+    def validate_recurrence(cls, value):
+        if value is not None and not re.fullmatch(r"FREQ=(DAILY|WEEKLY)(;BYDAY=(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*)?", value):
+            raise ValueError("Unsupported recurrence")
+        return value
 
     @field_validator("title", "date_expression", "time", "end_time", "location")
     @classmethod

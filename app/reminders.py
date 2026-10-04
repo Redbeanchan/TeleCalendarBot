@@ -24,7 +24,7 @@ class ReminderWorker:
                 overdue = datetime.now(timezone.utc) - scheduled
                 suffix = "\n_(Due earlier while I was offline.)_" if overdue > timedelta(minutes=2) else ""
                 try:
-                    await self.bot.send_message(row["telegram_chat_id"], f"⏰ Reminder: {row['title']}{suffix}", parse_mode="Markdown")
+                    await self.bot.send_message(row["telegram_chat_id"], f"⏰ Reminder: {row['title']}{suffix}")
                     self.database.finish_reminder(row["id"], True)
                     logger.info("Reminder delivered id=%s", row["id"])
                 except Exception:

@@ -155,6 +155,31 @@ docker compose up -d
 
 ## Development and tests
 
+### Telegram menu and new workflows
+
+The bot registers a private-chat command menu on startup. `/help` lists commands and examples.
+Use `/today`, `/tomorrow`, or `/schedule 3` for combined Calendar and reminder summaries.
+"What's my schedule for the next 2 days, including reminders?" covers the remainder of today and tomorrow.
+The supported summary horizon is 1-31 calendar days; "next few days" means three days.
+Calendar failures still return your reminders with an availability notice.
+
+Use `remind me every day at 10am to take my weight` or `/daily 10am take my weight`.
+Daily, weekday, weekly, and named-weekday reminders persist in SQLite. After successful delivery,
+the next occurrence is scheduled in the original timezone. Offline missed occurrences produce one
+overdue reminder, then advance to the next future occurrence instead of replaying every missed day.
+`/reminders` lists all active reminders and their IDs; `/cancel ID` stops a one-off or recurring reminder.
+
+Calendar proposal titles are formatted, for example `dinner with kor` becomes `Dinner with Kor`.
+Press **Edit details** and send `rename the event 'dinner with kor'` to change a proposal title.
+This changes the pending proposal; it does not rename an already-created Google event.
+Google writes still require **Yes**.
+
+`/debug on` streams available Ollama thinking output to the terminal and logs extracted fields,
+parser choice, drafts, and the final JSON. `/debug off` disables it. Debug resets to off on restart.
+It does not force thinking mode; models without thinking output show only the final result.
+Directly parsed requests show draft/field traces rather than model output. Debug text contains
+your message/event details; no debug file is created, and credential values are not logged.
+
 Tests use temporary DBs/mocks and never create real events:
 
 ```bash

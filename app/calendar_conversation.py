@@ -17,6 +17,9 @@ INVITATION = re.compile(r"^(?:let'?s\s+)?(?:meet|meet up|schedule a meeting|crea
 def calendar_followup(message: str, draft=None) -> ParsedIntent | None:
     """Handle explicit invitation slots and draft-only answers without a model guess."""
     text = message.strip().replace("\u2019", "'")
+    rename = re.fullmatch(r"(?:rename|name|call)(?:\s+(?:the|this))?(?:\s+event)?(?:\s+(?:to|as))?\s+(.+)", text, re.I)
+    if draft is not None and rename:
+        return ParsedIntent(intent=IntentType.PROPOSE_CALENDAR_EVENT, title=rename.group(1).strip('"\''), confidence=1)
     day = DAY.search(text)
     clock = CLOCK.search(text)
     if len(DAY.findall(text)) > 1 or len(CLOCK.findall(text)) > 1:
@@ -26,7 +29,7 @@ def calendar_followup(message: str, draft=None) -> ParsedIntent | None:
     remainder = " ".join(remainder.strip(" ,.!?").split())
     generic = bool(INVITATION.fullmatch(remainder))
     slot_answer = draft is not None and not remainder and bool(day or clock)
-    title_answer = draft is not None and not draft["title"] and not day and not clock
+    title_answer = draft is not None and not day and not clock
     if title_answer and re.match(r"^(?:remind\b|what\b|show\b|cancel\b)", text, re.IGNORECASE):
         return None
     if not (generic or slot_answer or title_answer):

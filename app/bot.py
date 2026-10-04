@@ -14,6 +14,7 @@ from app.date_resolver import DateResolver
 from app.handlers.auth import authorized
 from app.handlers.callbacks import callback_handler
 from app.handlers.messages import message_handler
+from app.handlers.commands import command_handlers, register_menu
 from app.intent_parser import IntentParser
 from app.ollama_client import OllamaClient
 from app.reminders import CalendarReminderWorker, ReminderWorker
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # HTTP request URLs can contain the Telegram token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     database = Database(settings.database_path)
     database.initialize()
     calendar = CalendarService(settings.google_token_path, settings.google_calendar_id, settings.timezone)
@@ -44,10 +48,16 @@ async def main() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("health", health))
+    for handler in command_handlers(settings.telegram_allowed_user_id):
+        application.add_handler(handler)
     application.add_handler(CallbackQueryHandler(callback_handler(settings.telegram_allowed_user_id), pattern=r"^calendar:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler(settings.telegram_allowed_user_id)))
 
     await application.initialize()
+    try:
+        await register_menu(application.bot, settings.telegram_allowed_user_id)
+    except Exception:
+        logger.warning("Could not register the Telegram menu. Send /start, then restart the bot to retry.")
     await application.start()
     if application.updater is None:
         raise RuntimeError("Telegram updater was not initialized")

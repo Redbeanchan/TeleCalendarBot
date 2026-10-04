@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Iterator
+from zoneinfo import ZoneInfo
+
+from dateutil.rrule import rrulestr
 
 
 def utcnow() -> datetime:
@@ -47,12 +50,13 @@ class Database:
             db.execute("PRAGMA synchronous=NORMAL")
             db.executescript(SCHEMA)
 
-    def create_reminder(self, user_id: int, chat_id: int, title: str, when: datetime, timezone: str) -> str:
+    def create_reminder(self, user_id: int, chat_id: int, title: str, when: datetime, timezone: str,
+                        recurrence_rule: str | None = None) -> str:
         reminder_id = str(uuid.uuid4())
         with self.transaction(immediate=True) as db:
             db.execute(
-                "INSERT INTO reminders(id,telegram_user_id,telegram_chat_id,title,scheduled_at_utc,original_timezone,created_at,status) VALUES(?,?,?,?,?,?,?,'pending')",
-                (reminder_id, user_id, chat_id, title, when.astimezone(dt_timezone.utc).isoformat(), timezone, utcnow().isoformat()),
+                "INSERT INTO reminders(id,telegram_user_id,telegram_chat_id,title,scheduled_at_utc,original_timezone,created_at,status,recurrence_rule) VALUES(?,?,?,?,?,?,?,'pending',?)",
+                (reminder_id, user_id, chat_id, title, when.astimezone(dt_timezone.utc).isoformat(), timezone, utcnow().isoformat(), recurrence_rule),
             )
         return reminder_id
 
@@ -68,6 +72,13 @@ class Database:
 
     def finish_reminder(self, reminder_id: str, sent: bool) -> None:
         with self.transaction(immediate=True) as db:
+            row = db.execute("SELECT * FROM reminders WHERE id=? AND status='delivering'", (reminder_id,)).fetchone()
+            if row and sent and row["recurrence_rule"]:
+                anchor = datetime.fromisoformat(row["scheduled_at_utc"]).astimezone(ZoneInfo(row["original_timezone"]))
+                next_due = rrulestr(row["recurrence_rule"], dtstart=anchor).after(max(utcnow(), anchor))
+                db.execute("UPDATE reminders SET status='pending',scheduled_at_utc=?,sent=0,sent_at=? WHERE id=? AND status='delivering'",
+                           (next_due.astimezone(dt_timezone.utc).isoformat(), utcnow().isoformat(), reminder_id))
+                return
             db.execute(
                 "UPDATE reminders SET status=?, sent=?, sent_at=? WHERE id=? AND status='delivering'",
                 ("sent" if sent else "pending", int(sent), utcnow().isoformat() if sent else None, reminder_id),
@@ -146,6 +157,16 @@ class Database:
                     now.isoformat(), (now + timedelta(minutes=ttl_minutes)).isoformat(),
                 ),
             )
+
+    def list_reminders(self, user_id: int, chat_id: int):
+        with self.connect() as db:
+            return db.execute("SELECT * FROM reminders WHERE telegram_user_id=? AND telegram_chat_id=? AND status IN ('pending','delivering') ORDER BY scheduled_at_utc",
+                              (user_id, chat_id)).fetchall()
+
+    def cancel_reminder(self, reminder_id: str, user_id: int, chat_id: int) -> bool:
+        with self.transaction(immediate=True) as db:
+            return bool(db.execute("UPDATE reminders SET status='cancelled' WHERE id=? AND telegram_user_id=? AND telegram_chat_id=? AND status IN ('pending','delivering')",
+                                   (reminder_id, user_id, chat_id)).rowcount)
 
     def clear_calendar_draft(self, user_id: int, chat_id: int) -> None:
         with self.transaction(immediate=True) as db:
