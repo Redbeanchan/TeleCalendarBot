@@ -15,7 +15,11 @@ Allowed intent values: create_reminder, propose_calendar_event, query_calendar, 
 Fields: intent,title,date_expression,time,end_time,location,confidence,missing_fields,needs_clarification.
 Preserve relative date language in date_expression; do not calculate dates. time/end_time use 24-hour HH:MM.
 Reminder requests are create_reminder. Real-world plans are propose_calendar_event. Schedule questions are query_calendar.
-If a required day or time is absent for a write, set needs_clarification true and list it. Never invent details."""
+If a required day or time is absent for a write, set needs_clarification true and list it. Never invent details.
+Generic invitations such as "let's meet tomorrow 7pm" have no event title: title=null,
+date_expression="tomorrow", time="19:00", intent="propose_calendar_event".
+Never use generic verbs such as "meet" as an event title. Location is optional.
+For a date-only edit such as "6th Oct", return date_expression="6th Oct" and leave title/time null."""
 
 
 class IntentParseError(RuntimeError):

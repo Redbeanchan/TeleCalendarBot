@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import dateparser
@@ -53,6 +53,11 @@ class DateResolver:
         return ResolvedRange(start=start, end=end)
 
     def _date(self, expression: str, now: datetime):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", expression):
+            try:
+                return date.fromisoformat(expression)
+            except ValueError as exc:
+                raise DateResolutionError("That date is invalid. Please give an exact day.") from exc
         if expression in {"tonight", "this evening"}:
             return now.date()
         match = re.search(r"\b(this|next)\s+(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b", expression)
@@ -71,6 +76,10 @@ class DateResolver:
         if not parsed:
             raise DateResolutionError("I couldn't resolve that date. Please give an exact day.")
         return parsed.date()
+
+    def resolve_date(self, expression: str, now: datetime | None = None):
+        local_now = (now or datetime.now(self.tz)).astimezone(self.tz)
+        return self._date(expression.strip().lower(), local_now)
 
     @staticmethod
     def _time(value: str | None, expression: str) -> time | None:

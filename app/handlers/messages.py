@@ -8,6 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.calendar_service import CalendarError
+from app.calendar_conversation import calendar_followup
 from app.date_resolver import DateResolutionError, default_duration
 from app.intent_parser import IntentParseError
 from app.models import IntentType, ParsedIntent
@@ -25,11 +26,16 @@ def message_handler(allowed_user_id: int):
             return
         services = context.application.bot_data
         try:
-            intent = await services["intent_parser"].parse(message.text)
-            logger.info("Intent classified type=%s confidence=%.2f", intent.intent, intent.confidence)
             draft = services["database"].get_calendar_draft(update.effective_user.id, update.effective_chat.id)
+            intent = calendar_followup(message.text, draft)
+            if intent is None:
+                intent = await services["intent_parser"].parse(message.text)
+            logger.info("Intent classified type=%s confidence=%.2f", intent.intent, intent.confidence)
             if draft and (intent.intent in {IntentType.PROPOSE_CALENDAR_EVENT, IntentType.UNKNOWN} or _has_calendar_details(intent)):
                 intent = _merge_calendar_draft(intent, draft, message.text)
+            if intent.intent == IntentType.PROPOSE_CALENDAR_EVENT and intent.date_expression:
+                # Freeze relative dates when received, even if the title arrives on another day.
+                intent.date_expression = services["date_resolver"].resolve_date(intent.date_expression).isoformat()
             if intent.intent == IntentType.PROPOSE_CALENDAR_EVENT and _is_incomplete_calendar_intent(intent):
                 services["database"].upsert_calendar_draft(
                     update.effective_user.id, update.effective_chat.id, intent.title, intent.date_expression, intent.time,
@@ -60,7 +66,7 @@ def message_handler(allowed_user_id: int):
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton("Yes", callback_data=f"calendar:create:{action_id}"),
                     InlineKeyboardButton("No", callback_data=f"calendar:cancel:{action_id}"),
-                    InlineKeyboardButton("Update details", callback_data=f"calendar:update:{action_id}"),
+                    InlineKeyboardButton("Edit details", callback_data=f"calendar:update:{action_id}"),
                 ]])
                 await message.reply_text(_proposal(intent.title, resolved.start, end, intent.location), reply_markup=keyboard)
             elif intent.intent == IntentType.QUERY_CALENDAR:
@@ -118,7 +124,7 @@ def _clarification(intent) -> str:
 
 def _calendar_draft_prompt(intent: ParsedIntent) -> str:
     if not intent.title:
-        return "What should I call this event?"
+        return "What should I name this event?"
     if not intent.date_expression:
         return f"When should I schedule {intent.title}?"
     if not intent.time:
@@ -128,7 +134,9 @@ def _calendar_draft_prompt(intent: ParsedIntent) -> str:
 
 def _proposal(title, start, end, location) -> str:
     where = f"\n📍 {location}" if location else ""
-    return f"📅 Create Google Calendar event?\n\n{title}\n{start.strftime('%A, %#d %B %Y')}\n{start.strftime('%#I:%M %p')} – {end.strftime('%#I:%M %p')}{where}"
+    day = f"{start.day} {start.strftime('%B %Y')}"
+    event_time = f"{start.hour % 12 or 12}:{start.minute:02d} {start.strftime('%p')}"
+    return f'Shall I create an event for {day} called "{title}", at {event_time}?{where}'
 
 
 def _event_list(day, events, timezone) -> str:
